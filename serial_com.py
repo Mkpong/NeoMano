@@ -1,6 +1,5 @@
-import sys
+
 import serial
-import select
 import threading
 
 
@@ -83,8 +82,14 @@ def BLE_Name_Request(ser, header=0xFA, id=0x92, length=0x01, checksum=(0x00, 0x0
     byte_data = [ord(char) for char in args[1]]
     for data in byte_data:
         packet.append(data)
-    print(byte_data)
-    print(packet)
+    ser.write(packet)
+
+def HeartBeat(ser, header=0xFA, id=0x9F, length=0x00, checksum=(0x00, 0x00)):
+    packet = bytearray()
+    packet.append(header)
+    packet.append(id)
+    packet.append(length)
+    ser.write(packet)
 
 # Request Function End
 
@@ -127,8 +132,11 @@ def EEPROM_Data_Response(ser, payload, checksum):
     print(f"주소({address})에 저장된 데이터 : {data}")
 
 def BLE_Name_Response(ser, payload, checksum):
-    print("A")
-    # payload에 length추가해야 할듯 length를 사용하는 데이터가 존재
+    name = ""
+    for data in payload:
+        name += data.decode('utf-8')
+    print(f"이름이 {name}으로 변경되었습니다.")
+
 
 
 # Response Function End
@@ -176,6 +184,7 @@ Response_Function = {
     b'\xE0': Write_Response,
     b'\xE1': EEPROM_Data_Response,
     b'\xE2': BLE_Name_Response,
+
 }
 Request_Function = {
     "identify": Identify_Request,
