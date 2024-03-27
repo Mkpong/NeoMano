@@ -1,9 +1,9 @@
-/**
- * A BLE client example that is rich in capabilities.
- * There is a lot new capabilities implemented.
- * author unknown
- * updated by chegewara
- */
+/* 
+* NeoMano control program used esp32
+* Author : Jaeyoung Lee
+* Email : leeja042499@gmail.com
+* Date : 2024.03
+*/
 
 #include "BLEDevice.h"
 
@@ -80,18 +80,28 @@ static BLERemoteCharacteristic* pRemoteWrite;
 static BLERemoteCharacteristic* pRemoteNotification;
 static BLEAdvertisedDevice* myDevice;
 
+String input_string = "";
+char *box;
+char *command;
+int speed, delay_time;
+
+// Callback Function (Receving Packet)
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteNotification,
   uint8_t* pData,
   size_t length,
   bool isNotify) {
-    if(!checkSum_Verification(pData,length)) return ;
+    // Device -> Host Packet Processing
+    if(!checkSum_Verification(pData,length)) return ; // Checksum Verification Process
+    // Check ID & Function Call
     if(pData[1] == 0xD0) Identify_Response(pData);
     else if(pData[1] == 0xD1) Device_Info_Response(pData);
 }
 
+// Callback function (Bluetooth connection(client) event)
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
+    Serial.println("OnConnect")
   }
 
   void onDisconnect(BLEClient* pclient) {
@@ -100,6 +110,7 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
+// Connect to device & Find service and add characteristic(write, notification)
 bool connectToServer() {
     Serial.print("Forming a connection to ");
     Serial.println(myDevice->getAddress().toString().c_str());
@@ -113,6 +124,7 @@ bool connectToServer() {
     Serial.println(" - Connected to server");
     pClient->setMTU(517); 
 
+    // Find Service
     BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
     if (pRemoteService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
@@ -123,7 +135,7 @@ bool connectToServer() {
     Serial.println(" - Found our Service");
 
 
-
+    // Find write characteristic
     pRemoteWrite = pRemoteService->getCharacteristic(writeUUID);
     if (pRemoteWrite == nullptr) {
       Serial.print("Failed to find our Write UUID: ");
@@ -133,7 +145,7 @@ bool connectToServer() {
     }
     Serial.println(" - Found our Write");
 
-
+    // Find notification chracteristic
     pRemoteNotification = pRemoteService->getCharacteristic(notificationUUID);
     if (pRemoteNotification == nullptr) {
       Serial.print("Failed to find our Notification UUID: ");
@@ -143,27 +155,26 @@ bool connectToServer() {
     }
     Serial.println(" - Found our Notification");
 
+    // Callback function setting
     if(pRemoteWrite->canNotify())
       pRemoteWrite->registerForNotify(notifyCallback);
 
     if(pRemoteNotification->canNotify())
       pRemoteNotification->registerForNotify(notifyCallback);
 
+    // Connection HandShake & Check Battery
     pRemoteWrite->writeValue(Identify_Request, 5);
     delay(1000);
-    for(int i = 0; i<5; i++){
-      pRemoteWrite->writeValue(&Device_Info_Request[i], 1);
-    }
+    pRemoteWrite->writeValue(&Device_Info_Request[i], 1);
     delay(1000);
+
     connected = true;
     return true;
 }
 
+// Callback function when find serviceUUID
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
-    // Serial.print("BLE Advertised Device found: ");
-    // Serial.println(advertisedDevice.toString().c_str());
-
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
 
       BLEDevice::getScan()->stop();
@@ -179,7 +190,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 // HeartBeat
 void Heartbeat_Func(){
   for(int i = 0; i<5; i++){
-    pRemoteWrite->writeValue(&Heartbeat[i], 1);
+    pRemoteWrite->writeValue(Heartbeat, 5);
   }
 }
 
@@ -201,6 +212,7 @@ void Device_Info_Response(uint8_t* packet){
   else if(packet[3] == 0) Serial.println("Battery Low");
 }
 
+// Verifty Checksum (for Receving Packet)
 bool checkSum_Verification(uint8_t *pData, size_t length){
   uint8_t checksum[2];
   return true;
@@ -211,30 +223,38 @@ void setup() {
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
 
-  // Retrieve a Scanner and set the callback we want to use to be informed when we
-  // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 5 seconds.
+  // Retrieve a Scanner and set the callback
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setInterval(1349);
   pBLEScan->setWindow(449);
   pBLEScan->setActiveScan(true);
-  pBLEScan->start(5, false);
+  pBLEScan->start(5, false); // scan to run for 5 sec
 }
 
+void UserInput(){
+  char *charData, *args[10], *command, *token = NULL;
+  int argc = 0;
+  String inputData = Serial.readStringUntil('\n');
+  charData = (char *)inputData.c_str();
+  token = strtok(charData, " \n"); command = token;
+  while(token != NULL){
+    if(argc > 10) break;
+    token = strtok(NULL, " \n");
+    strcpy(args[argc] , token);
+    argc++;
+  }
+  checkCommand(command, args);
+}
 
-
-String input_string = "";
-char *box;
-char *command;
-int speed, delay_time;
+void CheckCommand(char *command, char *args[10]){
+  
+}
 
 // This is the Arduino main loop function.
 void loop() {
 
-  // If the flag "doConnect" is true then we have scanned for and found the desired
-  // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
-  // connected we set the connected flag to be true.
+
   if (doConnect == true) {
     if (connectToServer()) {
       Serial.println("We are now connected to the BLE Server.");
@@ -244,15 +264,16 @@ void loop() {
     doConnect = false;
   }
 
-  // If we are connected to a peer BLE Server, update the characteristic each time we are reached
-  // with the current time since boot.
   if (connected) {
     
   }else if(doScan){
-    BLEDevice::getScan()->start(5, false);  // this is just example to start scan after disconnect, most likely there is better way to do it in arduino
+    // scan to run for 5 sec
+    BLEDevice::getScan()->start(5, false);
   }
+
+
   if(Serial.available()){
-    // Input String
+    // Input Command Process
     input_string = Serial.readStringUntil('\n');
     box = (char *)input_string.c_str();
     char *token = NULL;
@@ -268,7 +289,7 @@ void loop() {
       delay_time = atoi(token);
     }
     
-
+    // Check Command & Sending Request Packet
     if(strcmp(command, "grip") == 0 && speed != -1 && delay_time != -1){
       pRemoteWrite->writeValue(Packet_Table[1][speed], 7);
       Serial.print("griping  Speed "); Serial.print(speed); Serial.print("...");
