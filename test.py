@@ -19,6 +19,7 @@ def openSerial(port, baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.P
     ser.open()
     return ser
 
+# read data from Serial port
 def read(ser, size=1):
     try:
         read_data = ser.read(size)
@@ -26,17 +27,18 @@ def read(ser, size=1):
         return -1
     return read_data
 
+# read function - Thread
 def serial_read_thread():
     while True:
         readed = read(ser)
         try:
             print(readed.decode('utf-8'), end="")
-        except UnicodeDecodeError:
+        except UnicodeDecodeError: # utf-8 decodeing이 가능한 문자열만 출력
             print("", end="")
 
 
 
-# Enter Port number you use 
+# Enter Port number you use
 ser = openSerial('COM3')
 
 # Sending serial data - Thread
