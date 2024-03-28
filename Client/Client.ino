@@ -44,6 +44,34 @@ static BLERemoteCharacteristic* pRemoteWrite;
 static BLERemoteCharacteristic* pRemoteNotification;
 static BLEAdvertisedDevice* myDevice;
 
+static void notifyCallback(
+  BLERemoteCharacteristic* pBLERemoteNotification,
+  uint8_t* pData,
+  size_t length,
+  bool isNotify);
+
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+public:
+    void onResult(BLEAdvertisedDevice advertisedDevice);
+};
+
+class MyClientCallback: public BLEClientCallbacks {
+public:
+    void onConnect(BLEClient* pclient);
+    void onDisconnect(BLEClient* pclient);
+};
+
+void grip(char *args[10], int argc);
+void release(char *args[10], int argc);
+void stop();
+void identify();
+void response();
+void Identify_Response(uint8_t* packet);
+void Device_Info_Response(uint8_t* packet);
+bool connectToServer();
+void UserInput();
+
+
 void setup() {
   Serial.begin(115200); // baud rate = 115,200
   Serial.println("Starting Arduino BLE Client application...");
@@ -71,51 +99,60 @@ static void notifyCallback(
     else if(pData[1] == 0xD1) Device_Info_Response(pData); // ID=0xD1 이면 Device Info Response 패킷
 }
 
-// pclient가 device에 연결 또는 연결 해제 되었을때 호출되는 Callback함수
-class MyClientCallback : public BLEClientCallbacks {
-  // 디바이스에 연결되었을 때 - onConnect()
-  void onConnect(BLEClient* pclient) {
-    Serial.println("OnConnect");
-  }
-  // 디바이스에 연결 해제 되었을 때 - onDisconnect()
-  void onDisconnect(BLEClient* pclient) {
+void MyClientCallback::onConnect(BLEClient* pclient){
+  Serial.println("OnConnect");
+}
+
+void MyClientCallback::onDisconnect(BLEClient* pclient){
     connected = false;
     Serial.println("onDisconnect");
-  }
-};
+}
 
 // 원하는 Service UUID를 찾았을 때 
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
+void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
     // 수신된 장치가 ServiceUUID를 가지고 이 UUID가 설정한 UUID와 같을 때 처리 구간
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
 
-      BLEDevice::getScan()->stop(); // 스캔 중지
-      myDevice = new BLEAdvertisedDevice(advertisedDevice); // 광고된 장치로 새로운 BLEAdvertisedDevice 객체 생성
-      doConnect = true; // doConnect flag를 true로 설정하여 loop()에서 connectToServer() 함수 호출
-      doScan = true;
+        BLEDevice::getScan()->stop(); // 스캔 중지
+        myDevice = new BLEAdvertisedDevice(advertisedDevice); // 광고된 장치로 새로운 BLEAdvertisedDevice 객체 생성
+        doConnect = true; // doConnect flag를 true로 설정하여 loop()에서 connectToServer() 함수 호출
+        doScan = true;
     }
     else doScan = true;
-  }
-};
+}
 
 /* ----- Callback Function End ----- */
 
 /* ----- Request Function Start -----*/
 
 void grip(char *args[10], int argc){
-    pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
-    Serial.print("griping  Speed "); Serial.print(args[0]); Serial.println("...");
-    delay(atoi(args[1])); // args[1] 시간동안 대기
-    stop(); // Stop packet 전송
+  if(argc < 2){
+    Serial.println("Invalid parameter");
+  }
+  pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7);
+  Serial.println("delay start");
+  for(int i = 0 ; i < atoi(args[1]) ; i+=10){
+    delay(10);
+  }
+  Serial.println("delay end");
+  stop();
+  // pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
+  // Serial.print("griping  Speed "); Serial.print(args[0]); Serial.print("...");
+  // delay(atoi(args[1])); // args[1] 시간동안 대기
+  // Serial.println("Complete");
+  // stop(); // Stop packet 전송
 }
 
 
 void release(char *args[10], int argc){
-    pRemoteWrite->writeValue(Packet_Table[0][atoi(args[0])], 7); // args[0]의 속도로 release를 시작하는 packet 전송
-    Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.println("...");
-    delay(atoi(args[1])); // args[1] 시간동안 대기
-    stop(); // Stop packet 전송
+  if(argc < 2){
+    Serial.println("Invalid parameter");
+  }
+  pRemoteWrite->writeValue(Packet_Table[0][atoi(args[0])], 7); // args[0]의 속도로 release를 시작하는 packet 전송
+  Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.print("...");
+  delay(atoi(args[1])); // args[1] 시간동안 대기
+  Serial.println("Complete");
+  stop(); // Stop packet 전송
 }
 
 // Sensor Data Packet 수신을 정지하는 packet 전송
@@ -208,7 +245,7 @@ bool connectToServer() {
 
     // Characteristic으로 부터 데이터를 수신받았을 때 Callback 함수 설정
     if(pRemoteWrite->canNotify())
-      pRemoteWrite->registerForNotify(notifyCallback); // write인데 이거까지 해줘야 하나?
+      pRemoteWrite->registerForNotify(notifyCallback);
 
     if(pRemoteNotification->canNotify())
       pRemoteNotification->registerForNotify(notifyCallback);
@@ -243,6 +280,9 @@ void UserInput(){
   else if(strcmp(command, "stop") == 0) stop();
   else if(strcmp(command, "identify") == 0) identify();
   else if(strcmp(command, "deviceinfo") == 0) deviceinfo();
+  else{
+    Serial.print(command); Serial.println(" is invaild Command");
+  }
   
 }
 

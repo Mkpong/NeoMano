@@ -7,6 +7,15 @@ Data : 2024.03
 
 import serial
 import threading
+import argparse
+
+# Argument Parser 설정
+parser = argparse.ArgumentParser(description='Serial Communication Code')
+parser.add_argument('--port', type=str, default='COM3', help='Serial port name (e.g., COM3)')
+
+args = parser.parse_args()
+
+port = args.port
 
 # Open Serial Port
 def openSerial(port, baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, dsrdtr=False):
@@ -45,7 +54,7 @@ def serial_read_thread():
 
 
 # Enter Port number you use
-ser = openSerial('COM3')
+ser = openSerial(port)
 
 # Sending serial data - Thread
 serial_thread = threading.Thread(target=serial_read_thread, daemon=True)
