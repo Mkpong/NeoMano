@@ -1,6 +1,12 @@
+'''
+ESP32 Serial Communication Code
+Author : Jaeyoung Lee
+Mail : leeja042499@gmail.com
+Data : 2024.03
+'''
+
 import serial
 import threading
-
 
 # Open Serial Port
 def openSerial(port, baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, dsrdtr=False):
