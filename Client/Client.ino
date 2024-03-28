@@ -130,16 +130,15 @@ void grip(char *args[10], int argc){
     Serial.println("Invalid parameter");
   }
   pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7);
-  Serial.println("delay start");
+  Serial.print("griping  Speed "); Serial.print(args[0]); Serial.print("...");
+  // Serial.println("delay start");
   for(int i = 0 ; i < atoi(args[1]) ; i+=10){
     delay(10);
   }
-  Serial.println("delay end");
+  // Serial.println("delay end");
   stop();
   // pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
-  // Serial.print("griping  Speed "); Serial.print(args[0]); Serial.print("...");
   // delay(atoi(args[1])); // args[1] 시간동안 대기
-  // Serial.println("Complete");
   // stop(); // Stop packet 전송
 }
 
@@ -151,7 +150,6 @@ void release(char *args[10], int argc){
   pRemoteWrite->writeValue(Packet_Table[0][atoi(args[0])], 7); // args[0]의 속도로 release를 시작하는 packet 전송
   Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.print("...");
   delay(atoi(args[1])); // args[1] 시간동안 대기
-  Serial.println("Complete");
   stop(); // Stop packet 전송
 }
 
