@@ -106,6 +106,7 @@ void MyClientCallback::onConnect(BLEClient* pclient){
 void MyClientCallback::onDisconnect(BLEClient* pclient){
     connected = false;
     Serial.println("onDisconnect");
+    BLEDevice::getScan()->start(5, false);
 }
 
 // 원하는 Service UUID를 찾았을 때 
@@ -130,16 +131,10 @@ void grip(char *args[10], int argc){
     Serial.println("Invalid parameter");
   }
   pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7);
-  Serial.print("griping  Speed "); Serial.print(args[0]); Serial.print("...");
-  // Serial.println("delay start");
-  for(int i = 0 ; i < atoi(args[1]) ; i+=10){
-    delay(10);
-  }
-  // Serial.println("delay end");
-  stop();
-  // pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
-  // delay(atoi(args[1])); // args[1] 시간동안 대기
-  // stop(); // Stop packet 전송
+  Serial.print("griping  Speed "); Serial.print(args[0]); Serial.println("...");
+  pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
+  delay(atoi(args[1])); // args[1] 시간동안 대기
+  stop(); // Stop packet 전송
 }
 
 
@@ -148,7 +143,7 @@ void release(char *args[10], int argc){
     Serial.println("Invalid parameter");
   }
   pRemoteWrite->writeValue(Packet_Table[0][atoi(args[0])], 7); // args[0]의 속도로 release를 시작하는 packet 전송
-  Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.print("...");
+  Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.println("...");
   delay(atoi(args[1])); // args[1] 시간동안 대기
   stop(); // Stop packet 전송
 }
