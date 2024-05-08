@@ -82,9 +82,9 @@ void setup() {
 void gripf() {
   pCharacteristic2->setValue(grip, 6);
   Serial.println("Start Grip");
-  for(int i = 0 ;i < 20; i++){
+  for(int i = 0 ;i < 10000; i++){
     pCharacteristic2->notify();
-    delay(100);
+    delay(1);
   }
   Serial.println("End Grip");
   pCharacteristic2->setValue(stop, 6);
@@ -93,9 +93,9 @@ void gripf() {
 void releasef() {
   pCharacteristic2->setValue(release, 6);
   Serial.println("Start Release");
-  for(int i = 0 ;i < 10; i++){
+  for(int i = 0 ;i < 10000; i++){
     pCharacteristic2->notify();
-    delay(200);
+    delay(1);
   }
   Serial.println("End Release");
   pCharacteristic2->setValue(stop, 6);
@@ -115,5 +115,5 @@ void loop() {
     UserInput();
   }
   pCharacteristic2->notify();
-  delay(100);
+  delay(1);
 }

@@ -7,6 +7,7 @@
 
 #include "BLEDevice.h"
 
+
 static BLEUUID    serviceUUID("CA5025B1-755F-45FC-AC15-F5E7A7E43008");
 static BLEUUID    writeUUID("CA5025B2-755F-45FC-AC15-F5E7A7E43008");
 static BLEUUID    notificationUUID("CA5025B3-755F-45FC-AC15-F5E7A7E43008");
@@ -43,6 +44,29 @@ static boolean doScan = false;
 static BLERemoteCharacteristic* pRemoteWrite;
 static BLERemoteCharacteristic* pRemoteNotification;
 static BLEAdvertisedDevice* myDevice;
+uint8_t counter = 0;
+hw_timer_t *timer = NULL;
+volatile SemaphoreHandle_t timerSemaphore;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+static boolean stopflag = false;
+static boolean workingFlag = false;
+
+int delay_time[7] = {1000, 20000, 6000, 4000, 3000, 2500, 2000};
+
+
+struct dataPacket {
+  boolean direction;
+  int speed;
+  int delayTime;
+};
+
+struct QueueNode {
+  struct dataPacket data;
+  struct QueueNode* next;
+};
+
+struct QueueNode *header = NULL;
+struct QueueNode *tail = NULL;
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteNotification,
@@ -61,8 +85,12 @@ public:
     void onDisconnect(BLEClient* pclient);
 };
 
+ARDUINO_ISR_ATTR void IRAM_ATTR timerCallback();
+
 void grip(char *args[10], int argc);
 void release(char *args[10], int argc);
+void griprelease(char *args[10], int argc);
+void releasegrip(char *args[10], int argc);
 void stop();
 void identify();
 void response();
@@ -70,22 +98,39 @@ void Identify_Response(uint8_t* packet);
 void Device_Info_Response(uint8_t* packet);
 bool connectToServer();
 void UserInput();
+void initQueue();
+void enqueue(struct dataPacket newData);
+void readQueue();
+void sendingPacket(boolean direction, int speed, int delayTime);
+void setTimer(int time);
+int getDelayTime(int speed);
+void setDelayTime(char *args[10], int argc);
+void viewDelayTime();
+BLEScan* pBLEScan;
 
+ARDUINO_ISR_ATTR void timerCallback(){
+  stopflag = true;
+  timerEnd(timer);
+  timer = NULL;
+}
 
 void setup() {
   Serial.begin(115200); // baud rate = 115,200
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init(""); // BLE Device 초기 설정 -> 이름 지정 가능
 
-  BLEScan* pBLEScan = BLEDevice::getScan(); // Scan을 위한 객체 생성
+  pBLEScan = BLEDevice::getScan(); // Scan을 위한 객체 생성
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks()); // 광고 패킷을 발견할 때 호출할 Callback함수 설정
   pBLEScan->setInterval(1349); // Interveal 설정 - 스캔의 간격을 설정한다
   pBLEScan->setWindow(449); // Window 설정 - 스캔마다 블루투스 장치를 수신하는 시간
   pBLEScan->setActiveScan(true); // 활성스캔 활성화 - 주변 모든 블루투스 기기 탐색
   pBLEScan->start(5, false);  // 5초간 Scan 시작
+
 }
 
 /* ----- Callback Function Start ----- */
+
+
 
 // Device로부터 패킷이 날라올 때 호출되는 Callback 함수
 static void notifyCallback(
@@ -93,6 +138,8 @@ static void notifyCallback(
   uint8_t* pData,
   size_t length,
   bool isNotify) {
+
+    Serial.println("Sending Packet!");
 
     // Check ID & Function Call
     if(pData[1] == 0xD0) Identify_Response(pData); // ID=0xD0 이면 Identify Response 패킷
@@ -106,7 +153,7 @@ void MyClientCallback::onConnect(BLEClient* pclient){
 void MyClientCallback::onDisconnect(BLEClient* pclient){
     connected = false;
     Serial.println("onDisconnect");
-    BLEDevice::getScan()->start(5, false);
+    doScan = true;
 }
 
 // 원하는 Service UUID를 찾았을 때 
@@ -124,33 +171,224 @@ void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice)
 
 /* ----- Callback Function End ----- */
 
+void setTimer(int time) {
+  timer = timerBegin(1000000);
+  timerAttachInterrupt(timer, &timerCallback);
+  timerAlarm(timer, time * 1000 , false, 0);
+}
+
+int getDelayTime(int speed){
+    int delayTime;
+    switch(speed) {
+    case 0:
+      delayTime = delay_time[0];
+      break;
+    case 1:
+      delayTime = delay_time[1];
+      break;
+    case 2:
+      delayTime = delay_time[2];
+      break;
+    case 3:
+      delayTime = delay_time[3];
+      break;
+    case 4:
+      delayTime = delay_time[4];
+      break;
+    case 5:
+      delayTime = delay_time[5];
+      break;
+    case 6:
+      delayTime = delay_time[6];
+      break;
+    default:
+      delayTime = delay_time[4];
+      break;
+  }
+  return delayTime;
+}
+
+void setDelayTime(char *args[10], int argc){
+  if(argc != 2){
+    Serial.println("Invalid parameter");
+    return ;
+  }
+  delay_time[atoi(args[0])] = atoi(args[1]);
+  Serial.print("set Speed "); Serial.print(atoi(args[0])); Serial.print(" - "); Serial.print(args[1]); Serial.println("ms");
+}
+
+void viewDelayTime(){
+  Serial.println("----Time Table----");
+  for(int i = 0 ; i < 7; i++){
+    Serial.print("Speed ");
+    Serial.print(i);
+    Serial.print(" - ");
+    Serial.print(delay_time[i]);
+    Serial.println("ms");
+  }
+  Serial.println("------------------");
+}
+
+/* ----- Queue Function Start -----*/
+void initQueue(){
+    struct QueueNode* current = header;
+    while (current != NULL) {
+        struct QueueNode* temp = current;
+        current = current->next;
+        free(temp); // 노드 메모리 해제
+    }
+    header = tail = NULL; // header와 tail 포인터 초기화
+}
+
+// 새로운 패킷노드 삽입
+void enqueue(struct dataPacket newData){
+  struct QueueNode* newNode = (struct QueueNode*)malloc(sizeof(struct QueueNode));
+  if (newNode == NULL) {
+    // 메모리 할당 실패 시 처리
+    Serial.println("Failed to allocate memory for new node");
+    return;
+  }
+  newNode->data = newData;
+  newNode->next = NULL;
+
+  // 연결 리스트에 패킷 추가
+  if(header == NULL){
+    header = tail = newNode;
+  }
+  else{
+    tail->next = newNode;
+    tail = newNode;
+  }
+}
+
+void readQueue(){
+  if(header == NULL){
+    Serial.println("Empty taskQueue");
+    return ;
+  }
+
+  // Queue 재배치
+  struct QueueNode* temp = header;
+  struct dataPacket usingData = temp->data;
+  header = header->next;
+  free(temp);
+  if(header == NULL){
+    tail = NULL;
+  }
+
+  // 패킷 전송 함수 호출
+  sendingPacket(usingData.direction, usingData.speed, usingData.delayTime);
+}
+
+// 패킷 전송 Process
+void sendingPacket(boolean direction, int speed, int delayTime){
+  // grip process
+  if(direction){
+    pRemoteWrite->writeValue(Packet_Table[1][speed], 7);
+    if(speed != 0) {
+      Serial.print("grip  Speed "); Serial.print(speed); Serial.print("...");
+    }
+    setTimer(delayTime);
+    workingFlag = true;
+  }
+  else{
+    pRemoteWrite->writeValue(Packet_Table[0][speed], 7);
+    if(speed != 0) {
+      Serial.print("release  Speed "); Serial.print(speed); Serial.print("...");
+    }
+    setTimer(delayTime);
+    workingFlag = true;
+  }
+}
+/* ----- Queue Function End -----*/
+
 /* ----- Request Function Start -----*/
 
 void grip(char *args[10], int argc){
-  if(argc < 2){
+  int speed;
+  initQueue();
+  if(argc >= 2){
     Serial.println("Invalid parameter");
+    return ;
   }
-  pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7);
-  Serial.print("griping  Speed "); Serial.print(args[0]); Serial.println("...");
-  pRemoteWrite->writeValue(Packet_Table[1][atoi(args[0])], 7); // args[0]의 속도로 grip을 시작하는 packet 전송
-  delay(atoi(args[1])); // args[1] 시간동안 대기
-  stop(); // Stop packet 전송
+  if(argc == 0) speed = 4;
+  else speed = atoi(args[0]);
+  int delayTime = getDelayTime(speed);
+  struct dataPacket sendData = {true, speed, delayTime};
+  // taskQueue에 sendData 추가
+  enqueue(sendData);
 }
 
 
 void release(char *args[10], int argc){
-  if(argc < 2){
+  int speed;
+  initQueue();
+  if(argc >= 2){
     Serial.println("Invalid parameter");
+    return ;
   }
-  pRemoteWrite->writeValue(Packet_Table[0][atoi(args[0])], 7); // args[0]의 속도로 release를 시작하는 packet 전송
-  Serial.print("releasing  Speed "); Serial.print(args[0]); Serial.println("...");
-  delay(atoi(args[1])); // args[1] 시간동안 대기
-  stop(); // Stop packet 전송
+  if(argc == 0) speed = 4;
+  else speed = atoi(args[0]);
+  int delayTime = getDelayTime(speed);
+  struct dataPacket sendData = {false, speed, delayTime};
+  // taskQueue에 sendData 추가
+  enqueue(sendData);
+}
+
+void griprelease(char *args[10], int argc){
+  int speed;
+  initQueue();
+  if(argc >= 3){
+    Serial.println("Invalid Parameter");
+    return ;
+  }
+  if(argc == 1) speed = 4;
+  else speed = atoi(args[1]);
+  int count = atoi(args[0]);
+  int delayTime = getDelayTime(speed);
+
+  struct dataPacket sendData = {true, speed, delayTime};
+  struct dataPacket emptyData = {true, 0, delay_time[0]};
+  // taskQueue에 sendData 추가
+  for(int i = 0; i<count; i++){
+    sendData.direction = true;
+    enqueue(sendData);
+    enqueue(emptyData);
+    sendData.direction = false;
+    enqueue(sendData);
+    enqueue(emptyData);
+  }
+}
+
+void releasegrip(char *args[10], int argc){
+  int speed;
+  initQueue();
+  if(argc >= 3){
+    Serial.println("Invalid Parameter");
+    return ;
+  }
+  if(argc == 1) speed = 4;
+  else speed = atoi(args[1]);
+  int count = atoi(args[0]);
+  int delayTime = getDelayTime(speed);
+  struct dataPacket sendData = {false, speed, delayTime};
+  struct dataPacket emptyData = {true, 0, delay_time[0]};
+  // taskQueue에 sendData 추가
+  for(int i = 0; i<count; i++){
+    sendData.direction = false;
+    enqueue(sendData);
+    enqueue(emptyData);
+    sendData.direction = true;
+    enqueue(sendData);
+    enqueue(emptyData);
+  }
 }
 
 // Sensor Data Packet 수신을 정지하는 packet 전송
 void stop(){
   pRemoteWrite->writeValue(Sensor_Stop, 5);
+  Serial.println("stop");
+  workingFlag = false;
 }
 
 // Product ID 및 Version을 요청하는 packet 전송
@@ -258,6 +496,10 @@ void UserInput(){
   char *charData, *args[10], *command, *token = NULL;
   int argc = 0;
   String inputData = Serial.readStringUntil('\n'); // 줄바꿈 문자가 입력될때까지 Serial read
+  if(!connected){
+    Serial.println("Not Connected (try again after connect device)");
+    return ;
+  }
   charData = (char *)inputData.c_str(); //strtok() 사용을 위해 String -> char * 변경
   token = strtok(charData, " \n"); command = token; //strtok로 공백, 줄바꿈 기준으로 parsing 시작
   // 최대 10개까지 매개변수를 args에 저장
@@ -267,12 +509,17 @@ void UserInput(){
     args[argc] = token;
     argc++;
   }
+  argc--;
   // 0번째 입력 단어(command)에 따라 각기 다른 함수를 호출해 Device에게 packet 전송
   if(strcmp(command, "grip") == 0) grip(args, argc);
   else if(strcmp(command, "release") == 0) release(args, argc);
+  else if(strcmp(command, "griprelease") == 0) griprelease(args, argc);
+  else if(strcmp(command, "releasegrip") == 0) releasegrip(args, argc);
   else if(strcmp(command, "stop") == 0) stop();
   else if(strcmp(command, "identify") == 0) identify();
   else if(strcmp(command, "deviceinfo") == 0) deviceinfo();
+  else if(strcmp(command, "time") == 0) setDelayTime(args, argc);
+  else if(strcmp(command, "timetable") == 0) viewDelayTime();
   else{
     Serial.print(command); Serial.println(" is invaild Command");
   }
@@ -280,6 +527,10 @@ void UserInput(){
 }
 
 void loop() {
+  if(stopflag){
+    stop();
+    stopflag = false;
+  }
   // 해당 부분은 일치하는 serviceUUID를 찾았을 때 doConnect가 true로 설정되어 한번만 호출
   if (doConnect == true) {
     if (connectToServer()) {
@@ -295,9 +546,13 @@ void loop() {
     BLEDevice::getScan()->start(5, false);
   }
 
+  if(header != NULL && !workingFlag){
+    readQueue();
+  }
+
   // 사용자 입력이 있을 때 UserInput 함수 호출
   if(Serial.available()){
     UserInput();
   }
-
+  delay(1);
 } 
