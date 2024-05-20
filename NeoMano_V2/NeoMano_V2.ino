@@ -1,8 +1,8 @@
 /* 
-* NeoMano control program used esp32
+* NeoMano control program used esp32 Version. 2
 * Author : Jaeyoung Lee
 * Email : leeja042499@gmail.com
-* Date : 2024.03
+* Date : 2024.05
 */
 
 #include "BLEDevice.h"
@@ -50,8 +50,9 @@ volatile SemaphoreHandle_t timerSemaphore;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 static boolean stopflag = false;
 static boolean workingFlag = false;
+static boolean lastTaskFlag = false;
 
-int delay_time[7] = {1000, 20000, 6000, 4000, 3000, 2500, 2000};
+int delay_time[7] = {1000, 300000, 10000, 6000, 4000, 3000, 2500};
 
 
 struct dataPacket {
@@ -110,8 +111,6 @@ BLEScan* pBLEScan;
 
 ARDUINO_ISR_ATTR void timerCallback(){
   stopflag = true;
-  timerEnd(timer);
-  timer = NULL;
 }
 
 void setup() {
@@ -138,9 +137,6 @@ static void notifyCallback(
   uint8_t* pData,
   size_t length,
   bool isNotify) {
-
-    Serial.println("Sending Packet!");
-
     // Check ID & Function Call
     if(pData[1] == 0xD0) Identify_Response(pData); // ID=0xD0 이면 Identify Response 패킷
     else if(pData[1] == 0xD1) Device_Info_Response(pData); // ID=0xD1 이면 Device Info Response 패킷
@@ -153,6 +149,7 @@ void MyClientCallback::onConnect(BLEClient* pclient){
 void MyClientCallback::onDisconnect(BLEClient* pclient){
     connected = false;
     Serial.println("onDisconnect");
+    initQueue();
     doScan = true;
 }
 
@@ -218,8 +215,21 @@ void setDelayTime(char *args[10], int argc){
     Serial.println("Invalid parameter");
     return ;
   }
-  delay_time[atoi(args[0])] = atoi(args[1]);
-  Serial.print("set Speed "); Serial.print(atoi(args[0])); Serial.print(" - "); Serial.print(args[1]); Serial.println("ms");
+  if(atoi(args[0]) && atoi(args[0]) >= 0 && atoi(args[0]) <= 6){
+    if(atoi(args[1]) && atoi(args[1]) >= 0){
+      delay_time[atoi(args[0])] = atoi(args[1]);
+      Serial.print("set Speed "); Serial.print(atoi(args[0])); Serial.print(" - "); Serial.print(args[1]); Serial.println("ms");
+    }
+    else{
+      Serial.println("Input Correct duration time (over 0)");
+      return ;
+    }
+  }
+  else{
+    Serial.println("Input Correct Speed 0~6");
+    return ;
+  }
+
 }
 
 void viewDelayTime(){
@@ -284,6 +294,7 @@ void readQueue(){
   header = header->next;
   free(temp);
   if(header == NULL){
+    lastTaskFlag = true;
     tail = NULL;
   }
 
@@ -297,7 +308,7 @@ void sendingPacket(boolean direction, int speed, int delayTime){
   if(direction){
     pRemoteWrite->writeValue(Packet_Table[1][speed], 7);
     if(speed != 0) {
-      Serial.print("grip  Speed "); Serial.print(speed); Serial.print("...");
+      Serial.print("grip  Speed "); Serial.print(speed); Serial.println("...");
     }
     setTimer(delayTime);
     workingFlag = true;
@@ -305,7 +316,7 @@ void sendingPacket(boolean direction, int speed, int delayTime){
   else{
     pRemoteWrite->writeValue(Packet_Table[0][speed], 7);
     if(speed != 0) {
-      Serial.print("release  Speed "); Serial.print(speed); Serial.print("...");
+      Serial.print("release  Speed "); Serial.print(speed); Serial.println("...");
     }
     setTimer(delayTime);
     workingFlag = true;
@@ -318,13 +329,25 @@ void sendingPacket(boolean direction, int speed, int delayTime){
 void grip(char *args[10], int argc){
   int speed;
   initQueue(); // task Queue 초기화
+  if(workingFlag){
+    lastTaskFlag = false;
+    stop();
+  }
   if(argc >= 2){
     Serial.println("Invalid parameter");
     return ;
   }
   // 사용자가 속도 설정을 하지 않았을 때, 4로 고정
   if(argc == 0) speed = 4;
-  else speed = atoi(args[0]);
+  else {
+    if(atoi(args[0]) && atoi(args[0]) >= 0 && atoi(args[0]) <= 6){
+      speed = atoi(args[0]);
+    }
+    else{
+      Serial.println("Input Correct Speed 0~6");
+      return ;
+    }
+  }
   int delayTime = getDelayTime(speed);
   struct dataPacket sendData = {true, speed, delayTime};
   // taskQueue에 sendData 추가
@@ -335,13 +358,25 @@ void grip(char *args[10], int argc){
 void release(char *args[10], int argc){
   int speed;
   initQueue(); // task Queue 초기화
+  if(workingFlag){
+    lastTaskFlag = false;
+    stop();
+  }
   if(argc >= 2){
     Serial.println("Invalid parameter");
     return ;
   }
   // 사용자가 속도 설정을 하지 않았을 때, 4로 고정
   if(argc == 0) speed = 4;
-  else speed = atoi(args[0]);
+  else {
+    if(atoi(args[0]) && atoi(args[0]) >= 0 && atoi(args[0]) <= 6){
+      speed = atoi(args[0]);
+    }
+    else{
+      Serial.println("Input Correct Speed 0~6");
+      return ;
+    }
+  }
   int delayTime = getDelayTime(speed);
   struct dataPacket sendData = {false, speed, delayTime};
   // taskQueue에 sendData 추가
@@ -350,15 +385,45 @@ void release(char *args[10], int argc){
 
 void griprelease(char *args[10], int argc){
   int speed;
+  int count;
   initQueue(); // task Queue 초기화
+  // 이전 작업 동작중이면 stop으로 설정
+  if(workingFlag){
+    lastTaskFlag = false;
+    stop();
+  }
   if(argc >= 3){
     Serial.println("Invalid Parameter");
     return ;
   }
+  // 사용자가 아무 파라미터 입력하지 않았을 때, 속도 4로 1회 반복
+  if(argc == 0){
+    speed = 4;
+    count = 1;
+  }
   // 사용자가 속도 설정을 하지 않았을 때, 4로 고정
-  if(argc == 1) speed = 4;
-  else speed = atoi(args[1]);
-  int count = atoi(args[0]);
+  else if(argc == 1){
+    speed = atoi(args[0]);
+    count = 1;
+  }
+  else{
+    if(atoi(args[0]) && atoi(args[0]) >= 0 && atoi(args[0]) <= 6){
+      speed = atoi(args[0]);
+    }
+    else{
+      Serial.println("Input Correct Speed 0~6");
+      return ;
+    }
+    if(atoi(args[1]) && atoi(args[1]) > 0){
+      if(atoi(args[1]) > 20) count = 20;
+      else{
+        count = atoi(args[1]);
+      }      
+    }
+    else{
+      Serial.println("Input Correct Repeat Count(Over 0)");
+    }
+  }
   int delayTime = getDelayTime(speed);
 
   struct dataPacket sendData = {true, speed, delayTime};
@@ -377,15 +442,45 @@ void griprelease(char *args[10], int argc){
 
 void releasegrip(char *args[10], int argc){
   int speed;
+  int count;
   initQueue(); // task Queue 초기화
+  if(workingFlag){
+    lastTaskFlag = false;
+    stop();
+  }
   if(argc >= 3){
     Serial.println("Invalid Parameter");
     return ;
   }
-  // 사용자가 속도 설정을 하지 않았을 때, 4로 고정
-  if(argc == 1) speed = 4;
-  else speed = atoi(args[1]);
-  int count = atoi(args[0]);
+  // 사용자가 매개변수을 입력하지 않았을 때, 속도 4로 1회 반복
+  if(argc == 0){
+    speed = 4;
+    count = 1;
+  }
+  // 사용자가 매개변수를 1개만 입력했을 때, 해당 속도로 1회 반복
+  else if(argc == 1){
+    speed = atoi(args[0]);
+    count = 1;
+  }
+  // 사용자가 매개변수를 2개 입력했을 때, 해당 속도로 해당 Count만큼 반복
+  else{
+    if(atoi(args[0]) && atoi(args[0]) >= 0 && atoi(args[0]) <= 6){
+      speed = atoi(args[0]);
+    }
+    else{
+      Serial.println("Input Correct Speed 0~6");
+      return ;
+    }
+    if(atoi(args[1]) && atoi(args[1]) > 0){
+      if(atoi(args[1]) > 20) count = 20;
+      else{
+        count = atoi(args[1]);
+      }  
+    }
+    else{
+      Serial.println("Input Correct Repeat Count(Over 0)");
+    }
+  }
   int delayTime = getDelayTime(speed);
   struct dataPacket sendData = {false, speed, delayTime};
   struct dataPacket emptyData = {true, 0, delay_time[0]};
@@ -403,8 +498,15 @@ void releasegrip(char *args[10], int argc){
 
 // Sensor Data Packet 수신을 정지하는 packet 전송
 void stop(){
+  if(lastTaskFlag){
+    Serial.println("task complete");
+    lastTaskFlag = false;
+  }
   pRemoteWrite->writeValue(Sensor_Stop, 5);
-  Serial.println("stop");
+  if(timer != NULL){
+    timerEnd(timer);
+    timer = NULL;
+  }
   workingFlag = false;
 }
 
@@ -532,7 +634,12 @@ void UserInput(){
   else if(strcmp(command, "release") == 0) release(args, argc);
   else if(strcmp(command, "griprelease") == 0) griprelease(args, argc);
   else if(strcmp(command, "releasegrip") == 0) releasegrip(args, argc);
-  else if(strcmp(command, "stop") == 0) stop();
+  else if(strcmp(command, "stop") == 0) {
+    lastTaskFlag = false;
+    stop();
+    Serial.println("stop");
+    initQueue();
+  }
   else if(strcmp(command, "identify") == 0) identify();
   else if(strcmp(command, "deviceinfo") == 0) deviceinfo();
   else if(strcmp(command, "time") == 0) setDelayTime(args, argc);
