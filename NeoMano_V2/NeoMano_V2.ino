@@ -515,11 +515,6 @@ void identify(){
   pRemoteWrite->writeValue(Identify_Request, 5);
 }
 
-// 디바이스 info를 요청하는 packet 전송
-void deviceinfo(){
-  pRemoteWrite->writeValue(Device_Info_Request, 5);
-}
-
 /* ----- Request Function Start -----*/
 
 /* ----- Response Function Start ----- */
@@ -600,9 +595,8 @@ bool connectToServer() {
     if(pRemoteNotification->canNotify())
       pRemoteNotification->registerForNotify(notifyCallback);
 
-    // 처음 연결이 되었을 때, 기기의 통신 상태 및 버전, 배터리 확인을 위해 identify, device info reqeust 전송
+    // 처음 연결이 되었을 때, 기기의 통신 상태 및 버전 확인을 위해 identify 전송
     identify(); delay(1000);
-    deviceinfo(); delay(1000);
 
     connected = true;
     return true;
@@ -641,13 +635,11 @@ void UserInput(){
     initQueue();
   }
   else if(strcmp(command, "identify") == 0) identify();
-  else if(strcmp(command, "deviceinfo") == 0) deviceinfo();
   else if(strcmp(command, "time") == 0) setDelayTime(args, argc);
   else if(strcmp(command, "timetable") == 0) viewDelayTime();
   else{
     Serial.print(command); Serial.println(" is invaild Command");
   }
-  
 }
 
 void loop() {
